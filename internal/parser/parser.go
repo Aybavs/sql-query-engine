@@ -159,3 +159,83 @@ func (p *Parser) parsePrimary() (ast.Expr, error) {
 		return nil, fmt.Errorf("unexpected token %q at pos %d", t.Text, t.Pos)
 	}
 }
+
+// ParseSelect parses a full single-table SELECT statement and requires EOF.
+func (p *Parser) ParseSelect() (*ast.SelectStmt, error) {
+	if err := p.expectKeyword("SELECT"); err != nil {
+		return nil, err
+	}
+	st := &ast.SelectStmt{}
+
+	for {
+		if p.peek().Kind == lexer.Star {
+			p.next()
+			st.Projections = append(st.Projections, ast.Projection{Star: true})
+		} else {
+			e, err := p.ParseExpr()
+			if err != nil {
+				return nil, err
+			}
+			st.Projections = append(st.Projections, ast.Projection{Expr: e})
+		}
+		if p.peek().Kind != lexer.Comma {
+			break
+		}
+		p.next()
+	}
+
+	if err := p.expectKeyword("FROM"); err != nil {
+		return nil, err
+	}
+	tbl := p.next()
+	if tbl.Kind != lexer.Ident {
+		return nil, fmt.Errorf("expected table name at pos %d", tbl.Pos)
+	}
+	st.From = tbl.Text
+
+	if p.peek().Kind == lexer.Keyword && p.peek().Text == "WHERE" {
+		p.next()
+		e, err := p.ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+		st.Where = e
+	}
+
+	if p.peek().Kind == lexer.Keyword && p.peek().Text == "ORDER" {
+		p.next()
+		if err := p.expectKeyword("BY"); err != nil {
+			return nil, err
+		}
+		for {
+			e, err := p.ParseExpr()
+			if err != nil {
+				return nil, err
+			}
+			item := ast.OrderItem{Expr: e}
+			if p.peek().Kind == lexer.Keyword && (p.peek().Text == "ASC" || p.peek().Text == "DESC") {
+				item.Desc = p.next().Text == "DESC"
+			}
+			st.OrderBy = append(st.OrderBy, item)
+			if p.peek().Kind != lexer.Comma {
+				break
+			}
+			p.next()
+		}
+	}
+
+	if p.peek().Kind == lexer.Keyword && p.peek().Text == "LIMIT" {
+		p.next()
+		lim := p.next()
+		if lim.Kind != lexer.Int {
+			return nil, fmt.Errorf("expected integer after LIMIT at pos %d", lim.Pos)
+		}
+		n, _ := strconv.Atoi(lim.Text)
+		st.Limit = &n
+	}
+
+	if !p.atEOF() {
+		return nil, fmt.Errorf("unexpected trailing token %q at pos %d", p.peek().Text, p.peek().Pos)
+	}
+	return st, nil
+}
