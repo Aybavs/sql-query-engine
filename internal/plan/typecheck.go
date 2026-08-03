@@ -21,6 +21,11 @@ func inferExprType(e ast.Expr, s exec.Schema) (value.Type, error) {
 			return 0, err
 		}
 		return s[i].Type, nil
+	case *ast.SlotRef:
+		if n.Index < 0 || n.Index >= len(s) {
+			return 0, fmt.Errorf("slot %d out of range", n.Index)
+		}
+		return s[n.Index].Type, nil
 	case *ast.UnaryExpr:
 		t, err := inferExprType(n.Expr, s)
 		if err != nil {
