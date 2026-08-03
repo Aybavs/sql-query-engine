@@ -2,6 +2,7 @@ package exec
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"testing"
 
@@ -91,6 +92,26 @@ func TestHashJoinNonMatchingDropped(t *testing.T) {
 	r := ordersOp(value.Row{value.Int64(1), value.Int64(100)})
 	if got := drain(joinOps(l, r)); len(got) != 0 {
 		t.Fatalf("joined = %v, want no rows", got)
+	}
+}
+
+func TestHashJoinMatchesEquivalentIntAndFloatKeys(t *testing.T) {
+	l := usersOp(value.Row{value.Int64(7), value.Text("alice")})
+	r := ordersOp(value.Row{value.Float64(7), value.Int64(100)})
+	got := drain(joinOps(l, r))
+	want := []string{"7,alice,7,100"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("joined = %v, want %v", got, want)
+	}
+}
+
+func TestHashJoinMatchesNegativeFloatZeroWithIntegerZero(t *testing.T) {
+	l := usersOp(value.Row{value.Int64(0), value.Text("zero")})
+	r := ordersOp(value.Row{value.Float64(math.Copysign(0, -1)), value.Int64(100)})
+	got := drain(joinOps(l, r))
+	want := []string{"0,zero,-0,100"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("joined = %v, want %v", got, want)
 	}
 }
 

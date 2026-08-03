@@ -17,9 +17,17 @@ func encodeKey(v value.Value) (string, bool) {
 	}
 	switch v.Type {
 	case value.TInt:
-		return "n:" + strconv.FormatFloat(float64(v.I), 'g', -1, 64), true
+		f := float64(v.I)
+		if f == 0 {
+			f = 0
+		}
+		return "n:" + strconv.FormatFloat(f, 'g', -1, 64), true
 	case value.TFloat:
-		return "n:" + strconv.FormatFloat(v.F, 'g', -1, 64), true
+		f := v.F
+		if f == 0 {
+			f = 0
+		}
+		return "n:" + strconv.FormatFloat(f, 'g', -1, 64), true
 	case value.TBool:
 		return "b:" + strconv.FormatBool(v.B), true
 	default:
