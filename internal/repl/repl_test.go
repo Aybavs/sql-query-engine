@@ -66,3 +66,32 @@ func TestLoadSchemaRejectsBadLine(t *testing.T) {
 		t.Fatal("expected error for malformed schema line")
 	}
 }
+
+func TestReplRunsAggregateQuery(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "users.csv"), []byte("1,alice,30\n2,bob,15\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cat := catalog.New()
+	cat.Add(&catalog.Table{Name: "users", File: "users.csv", Columns: []catalog.Column{{Name: "id", Type: value.TInt}, {Name: "name", Type: value.TText}, {Name: "age", Type: value.TInt}}})
+	in := strings.NewReader("SELECT COUNT(*), AVG(age) FROM users\n")
+	var out bytes.Buffer
+	Run(cat, dir, in, &out)
+	if !strings.Contains(out.String(), "2") || !strings.Contains(out.String(), "22.5") {
+		t.Fatalf("output = %q", out.String())
+	}
+}
+
+func TestReplReportsAggregatePlannerError(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "users.csv"), []byte("1,alice,30\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cat := catalog.New()
+	cat.Add(&catalog.Table{Name: "users", File: "users.csv", Columns: []catalog.Column{{Name: "id", Type: value.TInt}, {Name: "name", Type: value.TText}, {Name: "age", Type: value.TInt}}})
+	var out bytes.Buffer
+	Run(cat, dir, strings.NewReader("SELECT name, COUNT(*) FROM users\n"), &out)
+	if !strings.Contains(out.String(), "GROUP BY") {
+		t.Fatalf("output = %q", out.String())
+	}
+}

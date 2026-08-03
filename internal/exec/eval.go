@@ -18,6 +18,11 @@ func Eval(e ast.Expr, row value.Row, s Schema) (value.Value, error) {
 			return value.Value{}, err
 		}
 		return row[i], nil
+	case *ast.SlotRef:
+		if n.Index < 0 || n.Index >= len(row) {
+			return value.Value{}, fmt.Errorf("slot %d out of range", n.Index)
+		}
+		return row[n.Index], nil
 	case *ast.IsNull:
 		v, err := Eval(n.Expr, row, s)
 		if err != nil {

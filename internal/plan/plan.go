@@ -37,11 +37,50 @@ func Build(st *ast.SelectStmt, cat *catalog.Catalog, dataDir string) (exec.Opera
 		schema = op.Schema()
 	}
 
+	if containsAggregate(st.Where) {
+		return nil, nil, fmt.Errorf("WHERE cannot contain aggregates")
+	}
+	aggregateQuery := isAggregateQuery(st)
+	if st.Having != nil && !aggregateQuery {
+		return nil, nil, fmt.Errorf("HAVING requires an aggregate query")
+	}
+
 	if st.Where != nil {
 		if err := requireBool(st.Where, schema, "WHERE"); err != nil {
 			return nil, nil, err
 		}
 		op = exec.NewFilter(op, st.Where)
+	}
+
+	if aggregateQuery {
+		aggOp, aggSchema, loweredProjections, loweredHaving, loweredOrderBy, err := buildAggregatePlan(st, op, schema)
+		if err != nil {
+			return nil, nil, err
+		}
+		op, schema = aggOp, aggSchema
+		if loweredHaving != nil {
+			op = exec.NewFilter(op, loweredHaving)
+		}
+		if len(loweredOrderBy) > 0 {
+			keys := make([]exec.SortKey, 0, len(loweredOrderBy))
+			for _, item := range loweredOrderBy {
+				keys = append(keys, exec.SortKey{Expr: item.Expr, Desc: item.Desc})
+			}
+			op = exec.NewSort(op, keys)
+		}
+		out := make(exec.Schema, len(loweredProjections))
+		for i, e := range loweredProjections {
+			t, err := inferExprType(e, schema)
+			if err != nil {
+				return nil, nil, err
+			}
+			out[i] = exec.Column{Name: exprName(st.Projections[i].Expr), Type: t}
+		}
+		op = exec.NewProject(op, loweredProjections, out)
+		if st.Limit != nil {
+			op = exec.NewLimit(op, *st.Limit)
+		}
+		return op, out, nil
 	}
 
 	if len(st.OrderBy) > 0 {
