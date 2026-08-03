@@ -1,0 +1,14 @@
+# AI / assistant process artifacts — never commit
+.claude/
+CLAUDE.md
+AGENTS.md
+docs/superpowers/
+
+# Go
+*.test
+*.out
+/bin/
+/minisql
+
+# OS / editor
+.DS_Store
