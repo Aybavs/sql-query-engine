@@ -100,7 +100,11 @@ func compareResult(op string, ord int) bool {
 
 func arithmetic(op string, l, r value.Value) (value.Value, error) {
 	if l.IsNull() || r.IsNull() {
-		return value.NullOf(value.TFloat), nil
+		outType := value.TFloat
+		if op != "/" && l.Type == value.TInt && r.Type == value.TInt {
+			outType = value.TInt
+		}
+		return value.NullOf(outType), nil
 	}
 	lf, rf := toF(l), toF(r)
 	var out float64
