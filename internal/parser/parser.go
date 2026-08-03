@@ -193,6 +193,30 @@ func (p *Parser) ParseSelect() (*ast.SelectStmt, error) {
 	}
 	st.From = tbl.Text
 
+	for p.peek().Kind == lexer.Keyword && (p.peek().Text == "JOIN" || p.peek().Text == "INNER") {
+		if p.peek().Text == "INNER" {
+			p.next()
+		}
+		if err := p.expectKeyword("JOIN"); err != nil {
+			return nil, err
+		}
+		if len(st.Joins) == 1 {
+			return nil, fmt.Errorf("only a single JOIN is supported at pos %d", p.peek().Pos)
+		}
+		jt := p.next()
+		if jt.Kind != lexer.Ident {
+			return nil, fmt.Errorf("expected table name after JOIN at pos %d", jt.Pos)
+		}
+		if err := p.expectKeyword("ON"); err != nil {
+			return nil, err
+		}
+		on, err := p.ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+		st.Joins = append(st.Joins, ast.Join{Table: jt.Text, On: on})
+	}
+
 	if p.peek().Kind == lexer.Keyword && p.peek().Text == "WHERE" {
 		p.next()
 		e, err := p.ParseExpr()

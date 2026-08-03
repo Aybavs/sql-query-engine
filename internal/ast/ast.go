@@ -30,9 +30,14 @@ func (*IsNull) isExpr()     {}
 type SelectStmt struct {
 	Projections []Projection
 	From        string
+	Joins       []Join
 	Where       Expr
 	OrderBy     []OrderItem
 	Limit       *int
+}
+type Join struct {
+	Table string
+	On    Expr
 }
 type Projection struct {
 	Star bool
