@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/aybavs/sql-query-engine/internal/ast"
 	"github.com/aybavs/sql-query-engine/internal/catalog"
 	"github.com/aybavs/sql-query-engine/internal/lexer"
 	"github.com/aybavs/sql-query-engine/internal/parser"
@@ -37,6 +38,22 @@ func TestJoinEndToEnd(t *testing.T) {
 	dir := joinDir(t)
 	got := buildAndRun(t,
 		"SELECT users.name, orders.total FROM users JOIN orders ON users.id = orders.user_id ORDER BY orders.total",
+		dir, joinCatalog())
+	want := [][]string{{"alice", "100"}, {"bob", "200"}, {"alice", "300"}}
+	if len(got) != len(want) {
+		t.Fatalf("rows = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i][0] != want[i][0] || got[i][1] != want[i][1] {
+			t.Fatalf("row %d = %v, want %v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestJoinCompoundExpressionEndToEnd(t *testing.T) {
+	dir := joinDir(t)
+	got := buildAndRun(t,
+		"SELECT users.name, orders.total FROM users JOIN orders ON users.id + 0 = orders.user_id ORDER BY orders.total",
 		dir, joinCatalog())
 	want := [][]string{{"alice", "100"}, {"bob", "200"}, {"alice", "300"}}
 	if len(got) != len(want) {
@@ -147,5 +164,122 @@ func TestJoinRejectsNestedEqualityOn(t *testing.T) {
 	st, _ := parser.New(toks).ParseSelect()
 	if _, _, err := Build(st, joinCatalog(), dir); err == nil {
 		t.Fatal("ON must contain a single equality")
+	}
+}
+
+func TestJoinRejectsIncompatibleKeyTypes(t *testing.T) {
+	dir := joinDir(t)
+	tests := []struct {
+		name string
+		sql  string
+	}{
+		{
+			name: "TEXT versus INT",
+			sql:  "SELECT users.name FROM users JOIN orders ON users.name = orders.user_id",
+		},
+		{
+			name: "INT versus BOOL",
+			sql:  "SELECT users.name FROM users JOIN orders ON users.id = (orders.user_id IS NULL)",
+		},
+		{
+			name: "invalid arithmetic operand",
+			sql:  "SELECT users.name FROM users JOIN orders ON users.name + 0 = orders.user_id",
+		},
+		{
+			name: "invalid comparison operand",
+			sql:  "SELECT users.name FROM users JOIN orders ON (users.name > 0) = (orders.user_id > 0)",
+		},
+		{
+			name: "invalid logical operand",
+			sql:  "SELECT users.name FROM users JOIN orders ON (users.id AND TRUE) = (orders.user_id > 0)",
+		},
+		{
+			name: "invalid NOT operand",
+			sql:  "SELECT users.name FROM users JOIN orders ON (NOT users.id) = (orders.user_id IS NULL)",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			toks, err := lexer.Lex(tt.sql)
+			if err != nil {
+				t.Fatal(err)
+			}
+			st, err := parser.New(toks).ParseSelect()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, _, err := Build(st, joinCatalog(), dir); err == nil {
+				t.Fatal("expected incompatible join key types to be rejected")
+			}
+		})
+	}
+}
+
+func TestJoinSupportsTypedCompoundOperands(t *testing.T) {
+	dir := joinDir(t)
+	tests := []struct {
+		name string
+		on   string
+	}{
+		{name: "unary minus and arithmetic", on: "-users.id + 0 = -orders.user_id + 0"},
+		{name: "comparison", on: "(users.id > 0) = (orders.user_id > 0)"},
+		{name: "NOT and IS NULL", on: "(NOT (users.id IS NULL)) = (NOT (orders.user_id IS NULL))"},
+		{name: "AND and OR", on: "((users.id > 0) AND (users.age > 0)) = ((orders.user_id > 0) OR (orders.total < 0))"},
+		{name: "numeric coercion", on: "users.id + 0 = orders.user_id / 1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			toks, err := lexer.Lex("SELECT users.name FROM users JOIN orders ON " + tt.on)
+			if err != nil {
+				t.Fatal(err)
+			}
+			st, err := parser.New(toks).ParseSelect()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, _, err := Build(st, joinCatalog(), dir); err != nil {
+				t.Fatalf("Build: %v", err)
+			}
+		})
+	}
+}
+
+func TestBuildRejectsMultipleJoinsInManualAST(t *testing.T) {
+	dir := joinDir(t)
+	if err := os.WriteFile(filepath.Join(dir, "shipments.csv"), []byte("100,10\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cat := joinCatalog()
+	cat.Add(&catalog.Table{
+		Name: "shipments", File: "shipments.csv",
+		Columns: []catalog.Column{
+			{Name: "id", Type: value.TInt},
+			{Name: "order_id", Type: value.TInt},
+		},
+	})
+	st := &ast.SelectStmt{
+		Projections: []ast.Projection{{Star: true}},
+		From:        "users",
+		Joins: []ast.Join{
+			{
+				Table: "orders",
+				On: &ast.BinaryExpr{
+					Op:    "=",
+					Left:  &ast.ColumnRef{Table: "users", Name: "id"},
+					Right: &ast.ColumnRef{Table: "orders", Name: "user_id"},
+				},
+			},
+			{
+				Table: "shipments",
+				On: &ast.BinaryExpr{
+					Op:    "=",
+					Left:  &ast.ColumnRef{Table: "orders", Name: "id"},
+					Right: &ast.ColumnRef{Table: "shipments", Name: "order_id"},
+				},
+			},
+		},
+	}
+	if _, _, err := Build(st, cat, dir); err == nil {
+		t.Fatal("expected manually constructed statement with two joins to be rejected")
 	}
 }

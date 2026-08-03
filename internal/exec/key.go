@@ -6,13 +6,13 @@ import (
 	"github.com/aybavs/sql-query-engine/internal/value"
 )
 
-// encodeKey renders a value as a hash-table key. It reports false for NULL,
-// which never joins: SQL treats NULL = NULL as unknown, not true.
+// encodeKey renders a value as a hash-table key. It reports false for NULL and
+// NaN, which never join because comparisons involving them are unknown.
 //
 // Ints and floats share one numeric encoding so an INT key matches a FLOAT key
 // of the same magnitude, mirroring the comparison rules in package value.
 func encodeKey(v value.Value) (string, bool) {
-	if v.IsNull() {
+	if v.IsNull() || v.IsNaN() {
 		return "", false
 	}
 	switch v.Type {

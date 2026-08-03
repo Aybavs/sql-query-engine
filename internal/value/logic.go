@@ -1,11 +1,12 @@
 package value
 
-// Compare orders two values. If either is NULL, known is false (unknown).
+// Compare orders two values. If either is NULL or NaN, known is false
+// (unknown). NaN is unordered and never equal to any value, including itself.
 // Numeric values (TInt/TFloat) are compared numerically; TText and TBool
 // compare within their own type. Type compatibility is guaranteed by plan-time
 // checks.
 func Compare(a, b Value) (ord int, known bool) {
-	if a.Null || b.Null {
+	if a.Null || b.Null || a.IsNaN() || b.IsNaN() {
 		return 0, false
 	}
 	if isNumeric(a.Type) && isNumeric(b.Type) {

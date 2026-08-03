@@ -1,6 +1,9 @@
 package value
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 func TestCompareNumeric(t *testing.T) {
 	if ord, known := Compare(Int64(1), Int64(2)); !known || ord != -1 {
@@ -14,6 +17,25 @@ func TestCompareNumeric(t *testing.T) {
 func TestCompareNullUnknown(t *testing.T) {
 	if _, known := Compare(Int64(1), NullOf(TInt)); known {
 		t.Fatal("comparison with NULL must be unknown")
+	}
+}
+
+func TestCompareNaNUnknown(t *testing.T) {
+	nan := Float64(math.NaN())
+	tests := []struct {
+		name string
+		a, b Value
+	}{
+		{name: "NaN versus finite", a: nan, b: Float64(1)},
+		{name: "finite versus NaN", a: Float64(1), b: nan},
+		{name: "NaN versus NaN", a: nan, b: nan},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if ord, known := Compare(tt.a, tt.b); known {
+				t.Fatalf("Compare() = (%d, true), want (_, false)", ord)
+			}
+		})
 	}
 }
 

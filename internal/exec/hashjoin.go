@@ -39,8 +39,8 @@ func NewHashJoin(left, right Operator, leftKey, rightKey ast.Expr) *HashJoin {
 
 func (h *HashJoin) Schema() Schema { return h.schema }
 
-// build drains the right input into the hash table. Rows whose key is NULL are
-// dropped: they can never match.
+// build drains the right input into the hash table. Rows whose key is NULL or
+// NaN are dropped because neither can match.
 func (h *HashJoin) build() {
 	h.table = make(map[string][]value.Row)
 	rs := h.right.Schema()
@@ -86,7 +86,7 @@ func (h *HashJoin) Next() (value.Row, bool) {
 		}
 		k, ok := encodeKey(v)
 		if !ok {
-			continue // NULL probe key never matches
+			continue // NULL and NaN probe keys never match
 		}
 		h.probe = row
 		h.matches = h.table[k]

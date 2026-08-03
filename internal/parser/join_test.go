@@ -24,6 +24,10 @@ func TestParseInnerJoin(t *testing.T) {
 	if !ok || left.Table != "users" || left.Name != "id" {
 		t.Fatalf("ON left = %#v, want users.id", on.Left)
 	}
+	right, ok := on.Right.(*ast.ColumnRef)
+	if !ok || right.Table != "orders" || right.Name != "user_id" {
+		t.Fatalf("ON right = %#v, want orders.user_id", on.Right)
+	}
 	if st.Where == nil {
 		t.Fatal("WHERE should still parse after the join")
 	}

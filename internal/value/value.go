@@ -1,7 +1,10 @@
 // Package value defines the typed values and rows the engine operates on.
 package value
 
-import "strconv"
+import (
+	"math"
+	"strconv"
+)
 
 type Type int
 
@@ -33,6 +36,7 @@ func Text(s string) Value     { return Value{Type: TText, S: s} }
 func Bool(b bool) Value       { return Value{Type: TBool, B: b} }
 
 func (v Value) IsNull() bool { return v.Null }
+func (v Value) IsNaN() bool  { return !v.Null && v.Type == TFloat && math.IsNaN(v.F) }
 
 func (v Value) String() string {
 	if v.Null {

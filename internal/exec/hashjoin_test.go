@@ -115,6 +115,43 @@ func TestHashJoinMatchesNegativeFloatZeroWithIntegerZero(t *testing.T) {
 	}
 }
 
+func TestHashJoinNaNKeysNeverMatch(t *testing.T) {
+	nan := value.Float64(math.NaN())
+	tests := []struct {
+		name        string
+		left, right value.Value
+	}{
+		{name: "NaN probe versus finite build", left: nan, right: value.Float64(1)},
+		{name: "finite probe versus NaN build", left: value.Float64(1), right: nan},
+		{name: "NaN probe versus NaN build", left: nan, right: nan},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			left := NewScan(
+				Schema{{Table: "left", Name: "key", Type: value.TFloat}},
+				[]value.Row{{tt.left}},
+			)
+			right := NewScan(
+				Schema{{Table: "right", Name: "key", Type: value.TFloat}},
+				[]value.Row{{tt.right}},
+			)
+			join := NewHashJoin(left, right,
+				&ast.ColumnRef{Table: "left", Name: "key"},
+				&ast.ColumnRef{Table: "right", Name: "key"},
+			)
+			if got := drain(join); len(got) != 0 {
+				t.Fatalf("joined = %v, want no rows", got)
+			}
+		})
+	}
+}
+
+func TestEncodeKeyRejectsNaN(t *testing.T) {
+	if key, ok := encodeKey(value.Float64(math.NaN())); ok {
+		t.Fatalf("encodeKey(NaN) = (%q, true), want (_, false)", key)
+	}
+}
+
 func TestHashJoinSchemaIsConcatenated(t *testing.T) {
 	j := joinOps(usersOp(), ordersOp())
 	s := j.Schema()

@@ -16,6 +16,10 @@ import (
 // operator tree together with its output schema. Column references are resolved
 // here, before execution, so operators never fail on unknown names.
 func Build(st *ast.SelectStmt, cat *catalog.Catalog, dataDir string) (exec.Operator, exec.Schema, error) {
+	if len(st.Joins) > 1 {
+		return nil, nil, fmt.Errorf("only a single JOIN is supported")
+	}
+
 	op, schema, err := scanTable(st.From, cat, dataDir)
 	if err != nil {
 		return nil, nil, err
@@ -92,12 +96,106 @@ func splitJoinKeys(on ast.Expr, left, right exec.Schema) (leftKey, rightKey ast.
 	rightOwner := joinOperandOwner(eq.Right, left, right)
 	switch {
 	case leftOwner == leftJoinOwner && rightOwner == rightJoinOwner:
-		return eq.Left, eq.Right, nil
+		leftKey, rightKey = eq.Left, eq.Right
 	case leftOwner == rightJoinOwner && rightOwner == leftJoinOwner:
-		return eq.Right, eq.Left, nil
+		leftKey, rightKey = eq.Right, eq.Left
 	default:
 		return nil, nil, fmt.Errorf("join condition must compare a column from each joined table")
 	}
+
+	leftType, err := inferExprType(leftKey, left)
+	if err != nil {
+		return nil, nil, fmt.Errorf("invalid left join key: %w", err)
+	}
+	rightType, err := inferExprType(rightKey, right)
+	if err != nil {
+		return nil, nil, fmt.Errorf("invalid right join key: %w", err)
+	}
+	if !comparableTypes(leftType, rightType) {
+		return nil, nil, fmt.Errorf("incompatible join key types")
+	}
+	return leftKey, rightKey, nil
+}
+
+// inferExprType validates a join-key expression and reports its runtime type.
+// It mirrors the expression forms supported by exec.Eval without adding SQL
+// syntax: numeric arithmetic, boolean logic, comparisons, and IS NULL.
+func inferExprType(e ast.Expr, s exec.Schema) (value.Type, error) {
+	switch n := e.(type) {
+	case *ast.Literal:
+		return n.Val.Type, nil
+	case *ast.ColumnRef:
+		i, err := s.Index(n.Table, n.Name)
+		if err != nil {
+			return 0, err
+		}
+		return s[i].Type, nil
+	case *ast.UnaryExpr:
+		t, err := inferExprType(n.Expr, s)
+		if err != nil {
+			return 0, err
+		}
+		switch n.Op {
+		case "-":
+			if !numericType(t) {
+				return 0, fmt.Errorf("operator - requires a numeric operand")
+			}
+			return t, nil
+		case "NOT":
+			if t != value.TBool {
+				return 0, fmt.Errorf("operator NOT requires a BOOL operand")
+			}
+			return value.TBool, nil
+		default:
+			return 0, fmt.Errorf("unsupported unary operator %q", n.Op)
+		}
+	case *ast.IsNull:
+		if _, err := inferExprType(n.Expr, s); err != nil {
+			return 0, err
+		}
+		return value.TBool, nil
+	case *ast.BinaryExpr:
+		leftType, err := inferExprType(n.Left, s)
+		if err != nil {
+			return 0, err
+		}
+		rightType, err := inferExprType(n.Right, s)
+		if err != nil {
+			return 0, err
+		}
+		switch n.Op {
+		case "+", "-", "*", "/":
+			if !numericType(leftType) || !numericType(rightType) {
+				return 0, fmt.Errorf("operator %s requires numeric operands", n.Op)
+			}
+			if n.Op == "/" || leftType == value.TFloat || rightType == value.TFloat {
+				return value.TFloat, nil
+			}
+			return value.TInt, nil
+		case "=", "<>", "<", "<=", ">", ">=":
+			if !comparableTypes(leftType, rightType) {
+				return 0, fmt.Errorf("operator %s requires compatible operands", n.Op)
+			}
+			return value.TBool, nil
+		case "AND", "OR":
+			if leftType != value.TBool || rightType != value.TBool {
+				return 0, fmt.Errorf("operator %s requires BOOL operands", n.Op)
+			}
+			return value.TBool, nil
+		default:
+			return 0, fmt.Errorf("unsupported binary operator %q", n.Op)
+		}
+	default:
+		return 0, fmt.Errorf("unsupported expression %T", e)
+	}
+}
+
+func comparableTypes(left, right value.Type) bool {
+	return numericType(left) && numericType(right) || left == right
+}
+
+func numericType(t value.Type) bool {
+	return t == value.TInt || t == value.TFloat
 }
 
 const invalidJoinOwner = -1
