@@ -1,1 +1,2 @@
 users(id INT, name TEXT, age INT, city TEXT)
+orders(id INT, user_id INT, total INT)
