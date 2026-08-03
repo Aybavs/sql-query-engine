@@ -1,0 +1,1 @@
+users(id INT, name TEXT, age INT, city TEXT)
