@@ -4,14 +4,13 @@ import (
 	"testing"
 
 	"github.com/aybavs/sql-query-engine/internal/ast"
-	"github.com/aybavs/sql-query-engine/internal/catalog"
 	"github.com/aybavs/sql-query-engine/internal/value"
 )
 
 func testSchema() Schema {
 	return Schema{
-		catalog.Column{Name: "age", Type: value.TInt},
-		catalog.Column{Name: "city", Type: value.TText},
+		{Name: "age", Type: value.TInt},
+		{Name: "city", Type: value.TText},
 	}
 }
 

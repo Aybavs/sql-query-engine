@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/aybavs/sql-query-engine/internal/ast"
-	"github.com/aybavs/sql-query-engine/internal/catalog"
 	"github.com/aybavs/sql-query-engine/internal/value"
 )
 
@@ -24,7 +23,7 @@ func drainAges(op Operator) []int64 {
 }
 
 func TestSortDesc(t *testing.T) {
-	sc := NewScan(Schema{catalog.Column{Name: "age", Type: value.TInt}},
+	sc := NewScan(Schema{{Name: "age", Type: value.TInt}},
 		[]value.Row{{value.Int64(10)}, {value.Int64(30)}, {value.Int64(20)}})
 	s := NewSort(sc, []SortKey{{Expr: &ast.ColumnRef{Name: "age"}, Desc: true}})
 	if got := drainAges(s); len(got) != 3 || got[0] != 30 || got[2] != 10 {
@@ -33,7 +32,7 @@ func TestSortDesc(t *testing.T) {
 }
 
 func TestSortNullsFirstAscending(t *testing.T) {
-	sc := NewScan(Schema{catalog.Column{Name: "age", Type: value.TInt}},
+	sc := NewScan(Schema{{Name: "age", Type: value.TInt}},
 		[]value.Row{{value.Int64(10)}, {value.NullOf(value.TInt)}})
 	s := NewSort(sc, []SortKey{{Expr: &ast.ColumnRef{Name: "age"}}})
 	got := drainAges(s)
@@ -43,7 +42,7 @@ func TestSortNullsFirstAscending(t *testing.T) {
 }
 
 func TestLimit(t *testing.T) {
-	sc := NewScan(Schema{catalog.Column{Name: "age", Type: value.TInt}},
+	sc := NewScan(Schema{{Name: "age", Type: value.TInt}},
 		[]value.Row{{value.Int64(1)}, {value.Int64(2)}, {value.Int64(3)}})
 	l := NewLimit(sc, 2)
 	if got := drainAges(l); len(got) != 2 {

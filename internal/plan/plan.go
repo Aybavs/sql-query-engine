@@ -20,7 +20,7 @@ func Build(st *ast.SelectStmt, cat *catalog.Catalog, dataDir string) (exec.Opera
 	if !ok {
 		return nil, nil, fmt.Errorf("unknown table %q", st.From)
 	}
-	tableSchema := exec.Schema(tbl.Columns)
+	tableSchema := exec.FromTable(tbl)
 
 	rows, err := csv.Read(filepath.Join(dataDir, tbl.File), tbl.Columns)
 	if err != nil {
@@ -47,7 +47,7 @@ func Build(st *ast.SelectStmt, cat *catalog.Catalog, dataDir string) (exec.Opera
 		op = exec.NewSort(op, keys)
 	}
 
-	exprs, out, err := projections(st, tbl, tableSchema)
+	exprs, out, err := projections(st, tableSchema)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -60,14 +60,14 @@ func Build(st *ast.SelectStmt, cat *catalog.Catalog, dataDir string) (exec.Opera
 }
 
 // projections expands `*` and validates explicit projection expressions.
-func projections(st *ast.SelectStmt, tbl *catalog.Table, s exec.Schema) ([]ast.Expr, exec.Schema, error) {
+func projections(st *ast.SelectStmt, s exec.Schema) ([]ast.Expr, exec.Schema, error) {
 	var exprs []ast.Expr
 	var out exec.Schema
 	for _, pr := range st.Projections {
 		if pr.Star {
-			for _, c := range tbl.Columns {
-				exprs = append(exprs, &ast.ColumnRef{Name: c.Name})
-				out = append(out, c)
+			for _, c := range s {
+				exprs = append(exprs, &ast.ColumnRef{Table: c.Table, Name: c.Name})
+				out = append(out, exec.Column{Table: c.Table, Name: c.Name, Type: c.Type})
 			}
 			continue
 		}
@@ -75,7 +75,7 @@ func projections(st *ast.SelectStmt, tbl *catalog.Table, s exec.Schema) ([]ast.E
 			return nil, nil, err
 		}
 		exprs = append(exprs, pr.Expr)
-		out = append(out, catalog.Column{Name: exprName(pr.Expr), Type: exprType(pr.Expr, s)})
+		out = append(out, exec.Column{Name: exprName(pr.Expr), Type: exprType(pr.Expr, s)})
 	}
 	return exprs, out, nil
 }

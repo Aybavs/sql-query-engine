@@ -3,13 +3,12 @@ package exec
 import (
 	"testing"
 
-	"github.com/aybavs/sql-query-engine/internal/catalog"
 	"github.com/aybavs/sql-query-engine/internal/value"
 )
 
 func TestScanEmitsAllRows(t *testing.T) {
 	sc := NewScan(
-		Schema{catalog.Column{Name: "id", Type: value.TInt}},
+		Schema{{Name: "id", Type: value.TInt}},
 		[]value.Row{{value.Int64(1)}, {value.Int64(2)}},
 	)
 	var got []int64
