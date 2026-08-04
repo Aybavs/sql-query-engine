@@ -31,3 +31,13 @@ func TestCatalogLookup(t *testing.T) {
 		t.Fatal("unknown column should not resolve")
 	}
 }
+
+func TestTablesIsSortedAndComplete(t *testing.T) {
+	c := New()
+	c.Add(&Table{Name: "users"})
+	c.Add(&Table{Name: "orders"})
+	got := c.Tables()
+	if len(got) != 2 || got[0].Name != "orders" || got[1].Name != "users" {
+		t.Fatalf("Tables() = %v, want [orders users]", got)
+	}
+}
