@@ -4,8 +4,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aybavs/sql-query-engine/internal/catalog"
 	"github.com/aybavs/sql-query-engine/internal/lexer"
 	"github.com/aybavs/sql-query-engine/internal/parser"
+	"github.com/aybavs/sql-query-engine/internal/value"
 )
 
 func TestGeneratedQueriesParse(t *testing.T) {
@@ -78,6 +80,55 @@ func TestGeneratorCoversTheGrammar(t *testing.T) {
 	for _, kw := range []string{"WHERE", "ORDER BY", "LIMIT", "GROUP BY", "HAVING", "IS NULL", "AND", "OR"} {
 		if !seen[kw] {
 			t.Errorf("400 queries never produced %q", kw)
+		}
+	}
+}
+
+// twoTableFixture mirrors the differential fixture's shape so join generation
+// has something to work with.
+func twoTableFixture(t *testing.T) *catalog.Catalog {
+	t.Helper()
+	cat := catalog.New()
+	cat.Add(&catalog.Table{Name: "users", File: "users.csv", Columns: []catalog.Column{
+		{Name: "id", Type: value.TInt},
+		{Name: "name", Type: value.TText},
+		{Name: "age", Type: value.TInt},
+	}})
+	cat.Add(&catalog.Table{Name: "orders", File: "orders.csv", Columns: []catalog.Column{
+		{Name: "id", Type: value.TInt},
+		{Name: "user_id", Type: value.TInt},
+	}})
+	return cat
+}
+
+// The hash join is the most intricate operator in the engine, so the generator
+// has to reach it.
+func TestGeneratorProducesJoins(t *testing.T) {
+	g := NewGenerator(11, twoTableFixture(t))
+	joins := 0
+	for i := 0; i < 300; i++ {
+		if strings.Contains(g.Query(), " JOIN ") {
+			joins++
+		}
+	}
+	if joins < 20 {
+		t.Fatalf("only %d/300 queries joined; the hash join would be barely covered", joins)
+	}
+}
+
+func TestGeneratedJoinQueriesParse(t *testing.T) {
+	g := NewGenerator(12, twoTableFixture(t))
+	for i := 0; i < 300; i++ {
+		q := g.Query()
+		if !strings.Contains(q, " JOIN ") {
+			continue
+		}
+		toks, err := lexer.Lex(q)
+		if err != nil {
+			t.Fatalf("join query does not lex: %q: %v", q, err)
+		}
+		if _, err := parser.New(toks).ParseSelect(); err != nil {
+			t.Fatalf("join query does not parse: %q: %v", q, err)
 		}
 	}
 }
