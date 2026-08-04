@@ -18,6 +18,11 @@ func Eval(e ast.Expr, row value.Row, s Schema) (value.Value, error) {
 			return value.Value{}, err
 		}
 		return row[i], nil
+	case *ast.SlotRef:
+		if n.Index < 0 || n.Index >= len(row) {
+			return value.Value{}, fmt.Errorf("slot %d out of range", n.Index)
+		}
+		return row[n.Index], nil
 	case *ast.IsNull:
 		v, err := Eval(n.Expr, row, s)
 		if err != nil {
@@ -100,7 +105,11 @@ func compareResult(op string, ord int) bool {
 
 func arithmetic(op string, l, r value.Value) (value.Value, error) {
 	if l.IsNull() || r.IsNull() {
-		return value.NullOf(value.TFloat), nil
+		outType := value.TFloat
+		if op != "/" && l.Type == value.TInt && r.Type == value.TInt {
+			outType = value.TInt
+		}
+		return value.NullOf(outType), nil
 	}
 	lf, rf := toF(l), toF(r)
 	var out float64

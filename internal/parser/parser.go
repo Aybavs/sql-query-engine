@@ -4,6 +4,7 @@ package parser
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/aybavs/sql-query-engine/internal/ast"
 	"github.com/aybavs/sql-query-engine/internal/lexer"
@@ -146,6 +147,31 @@ func (p *Parser) parsePrimary() (ast.Expr, error) {
 		}
 		return nil, fmt.Errorf("unexpected keyword %q at pos %d", t.Text, t.Pos)
 	case lexer.Ident:
+		if p.peek().Kind == lexer.LParen {
+			p.next()
+			call := &ast.AggregateCall{Name: strings.ToUpper(t.Text)}
+			if p.peek().Kind == lexer.Star {
+				p.next()
+				call.Star = true
+			} else {
+				if p.peek().Kind == lexer.RParen {
+					return nil, fmt.Errorf("aggregate %s requires one argument", call.Name)
+				}
+				arg, err := p.ParseExpr()
+				if err != nil {
+					return nil, err
+				}
+				call.Arg = arg
+			}
+			if p.peek().Kind != lexer.RParen {
+				return nil, fmt.Errorf("aggregate %s requires exactly one argument", call.Name)
+			}
+			p.next()
+			if call.Star && call.Name != "COUNT" {
+				return nil, fmt.Errorf("only COUNT accepts *")
+			}
+			return call, nil
+		}
 		if p.peek().Kind == lexer.Dot {
 			p.next()
 			col := p.next()
@@ -224,6 +250,33 @@ func (p *Parser) ParseSelect() (*ast.SelectStmt, error) {
 			return nil, err
 		}
 		st.Where = e
+	}
+
+	if p.peek().Kind == lexer.Keyword && p.peek().Text == "GROUP" {
+		p.next()
+		if err := p.expectKeyword("BY"); err != nil {
+			return nil, err
+		}
+		for {
+			e, err := p.ParseExpr()
+			if err != nil {
+				return nil, err
+			}
+			st.GroupBy = append(st.GroupBy, e)
+			if p.peek().Kind != lexer.Comma {
+				break
+			}
+			p.next()
+		}
+	}
+
+	if p.peek().Kind == lexer.Keyword && p.peek().Text == "HAVING" {
+		p.next()
+		e, err := p.ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+		st.Having = e
 	}
 
 	if p.peek().Kind == lexer.Keyword && p.peek().Text == "ORDER" {

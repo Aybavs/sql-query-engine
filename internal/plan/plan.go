@@ -9,7 +9,6 @@ import (
 	"github.com/aybavs/sql-query-engine/internal/catalog"
 	"github.com/aybavs/sql-query-engine/internal/csv"
 	"github.com/aybavs/sql-query-engine/internal/exec"
-	"github.com/aybavs/sql-query-engine/internal/value"
 )
 
 // Build validates st against the catalog, loads the tables, and returns the
@@ -38,17 +37,56 @@ func Build(st *ast.SelectStmt, cat *catalog.Catalog, dataDir string) (exec.Opera
 		schema = op.Schema()
 	}
 
+	if containsAggregate(st.Where) {
+		return nil, nil, fmt.Errorf("WHERE cannot contain aggregates")
+	}
+	aggregateQuery := isAggregateQuery(st)
+	if st.Having != nil && !aggregateQuery {
+		return nil, nil, fmt.Errorf("HAVING requires an aggregate query")
+	}
+
 	if st.Where != nil {
-		if err := validate(st.Where, schema); err != nil {
+		if err := requireBool(st.Where, schema, "WHERE"); err != nil {
 			return nil, nil, err
 		}
 		op = exec.NewFilter(op, st.Where)
 	}
 
+	if aggregateQuery {
+		aggOp, aggSchema, loweredProjections, loweredHaving, loweredOrderBy, err := buildAggregatePlan(st, op, schema)
+		if err != nil {
+			return nil, nil, err
+		}
+		op, schema = aggOp, aggSchema
+		if loweredHaving != nil {
+			op = exec.NewFilter(op, loweredHaving)
+		}
+		if len(loweredOrderBy) > 0 {
+			keys := make([]exec.SortKey, 0, len(loweredOrderBy))
+			for _, item := range loweredOrderBy {
+				keys = append(keys, exec.SortKey{Expr: item.Expr, Desc: item.Desc})
+			}
+			op = exec.NewSort(op, keys)
+		}
+		out := make(exec.Schema, len(loweredProjections))
+		for i, e := range loweredProjections {
+			t, err := inferExprType(e, schema)
+			if err != nil {
+				return nil, nil, err
+			}
+			out[i] = exec.Column{Name: exprName(st.Projections[i].Expr), Type: t}
+		}
+		op = exec.NewProject(op, loweredProjections, out)
+		if st.Limit != nil {
+			op = exec.NewLimit(op, *st.Limit)
+		}
+		return op, out, nil
+	}
+
 	if len(st.OrderBy) > 0 {
 		keys := make([]exec.SortKey, 0, len(st.OrderBy))
 		for _, o := range st.OrderBy {
-			if err := validate(o.Expr, schema); err != nil {
+			if _, err := inferExprType(o.Expr, schema); err != nil {
 				return nil, nil, err
 			}
 			keys = append(keys, exec.SortKey{Expr: o.Expr, Desc: o.Desc})
@@ -115,87 +153,6 @@ func splitJoinKeys(on ast.Expr, left, right exec.Schema) (leftKey, rightKey ast.
 		return nil, nil, fmt.Errorf("incompatible join key types")
 	}
 	return leftKey, rightKey, nil
-}
-
-// inferExprType validates a join-key expression and reports its runtime type.
-// It mirrors the expression forms supported by exec.Eval without adding SQL
-// syntax: numeric arithmetic, boolean logic, comparisons, and IS NULL.
-func inferExprType(e ast.Expr, s exec.Schema) (value.Type, error) {
-	switch n := e.(type) {
-	case *ast.Literal:
-		return n.Val.Type, nil
-	case *ast.ColumnRef:
-		i, err := s.Index(n.Table, n.Name)
-		if err != nil {
-			return 0, err
-		}
-		return s[i].Type, nil
-	case *ast.UnaryExpr:
-		t, err := inferExprType(n.Expr, s)
-		if err != nil {
-			return 0, err
-		}
-		switch n.Op {
-		case "-":
-			if !numericType(t) {
-				return 0, fmt.Errorf("operator - requires a numeric operand")
-			}
-			return t, nil
-		case "NOT":
-			if t != value.TBool {
-				return 0, fmt.Errorf("operator NOT requires a BOOL operand")
-			}
-			return value.TBool, nil
-		default:
-			return 0, fmt.Errorf("unsupported unary operator %q", n.Op)
-		}
-	case *ast.IsNull:
-		if _, err := inferExprType(n.Expr, s); err != nil {
-			return 0, err
-		}
-		return value.TBool, nil
-	case *ast.BinaryExpr:
-		leftType, err := inferExprType(n.Left, s)
-		if err != nil {
-			return 0, err
-		}
-		rightType, err := inferExprType(n.Right, s)
-		if err != nil {
-			return 0, err
-		}
-		switch n.Op {
-		case "+", "-", "*", "/":
-			if !numericType(leftType) || !numericType(rightType) {
-				return 0, fmt.Errorf("operator %s requires numeric operands", n.Op)
-			}
-			if n.Op == "/" || leftType == value.TFloat || rightType == value.TFloat {
-				return value.TFloat, nil
-			}
-			return value.TInt, nil
-		case "=", "<>", "<", "<=", ">", ">=":
-			if !comparableTypes(leftType, rightType) {
-				return 0, fmt.Errorf("operator %s requires compatible operands", n.Op)
-			}
-			return value.TBool, nil
-		case "AND", "OR":
-			if leftType != value.TBool || rightType != value.TBool {
-				return 0, fmt.Errorf("operator %s requires BOOL operands", n.Op)
-			}
-			return value.TBool, nil
-		default:
-			return 0, fmt.Errorf("unsupported binary operator %q", n.Op)
-		}
-	default:
-		return 0, fmt.Errorf("unsupported expression %T", e)
-	}
-}
-
-func comparableTypes(left, right value.Type) bool {
-	return numericType(left) && numericType(right) || left == right
-}
-
-func numericType(t value.Type) bool {
-	return t == value.TInt || t == value.TFloat
 }
 
 const invalidJoinOwner = -1
@@ -266,11 +223,12 @@ func projections(st *ast.SelectStmt, s exec.Schema) ([]ast.Expr, exec.Schema, er
 			}
 			continue
 		}
-		if err := validate(pr.Expr, s); err != nil {
+		t, err := inferExprType(pr.Expr, s)
+		if err != nil {
 			return nil, nil, err
 		}
 		exprs = append(exprs, pr.Expr)
-		out = append(out, exec.Column{Name: exprName(pr.Expr), Type: exprType(pr.Expr, s)})
+		out = append(out, exec.Column{Name: exprName(pr.Expr), Type: t})
 	}
 	return exprs, out, nil
 }
@@ -302,21 +260,4 @@ func exprName(e ast.Expr) string {
 		return c.Name
 	}
 	return "expr"
-}
-
-// exprType reports the declared type of a projected column. Column references
-// carry their catalog type; computed expressions are labelled by their operand
-// kind and carry their precise type at runtime on each Value.
-func exprType(e ast.Expr, s exec.Schema) value.Type {
-	switch n := e.(type) {
-	case *ast.ColumnRef:
-		if i, err := s.Index(n.Table, n.Name); err == nil {
-			return s[i].Type
-		}
-	case *ast.Literal:
-		return n.Val.Type
-	case *ast.IsNull:
-		return value.TBool
-	}
-	return value.TFloat
 }

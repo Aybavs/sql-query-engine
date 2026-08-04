@@ -10,7 +10,16 @@ func Compare(a, b Value) (ord int, known bool) {
 		return 0, false
 	}
 	if isNumeric(a.Type) && isNumeric(b.Type) {
-		return cmpFloat(toFloat(a), toFloat(b)), true
+		switch {
+		case a.Type == TInt && b.Type == TInt:
+			return cmpInt(a.I, b.I), true
+		case a.Type == TFloat && b.Type == TFloat:
+			return cmpFloat(a.F, b.F), true
+		case a.Type == TInt:
+			return cmpIntFloat(a.I, b.F), true
+		default:
+			return -cmpIntFloat(b.I, a.F), true
+		}
 	}
 	switch a.Type {
 	case TText:
@@ -23,11 +32,45 @@ func Compare(a, b Value) (ord int, known bool) {
 
 func isNumeric(t Type) bool { return t == TInt || t == TFloat }
 
-func toFloat(v Value) float64 {
-	if v.Type == TInt {
-		return float64(v.I)
+func cmpInt(a, b int64) int {
+	switch {
+	case a < b:
+		return -1
+	case a > b:
+		return 1
+	default:
+		return 0
 	}
-	return v.F
+}
+
+func cmpIntFloat(i int64, f float64) int {
+	const (
+		minInt64Float       = -1 << 63
+		maxInt64FloatCutoff = 1 << 63
+	)
+
+	// Screen values outside int64's range before converting f. These checks
+	// also order negative and positive infinity without a special case.
+	switch {
+	case f >= maxInt64FloatCutoff:
+		return -1
+	case f < minInt64Float:
+		return 1
+	}
+
+	truncated := int64(f)
+	switch {
+	case i < truncated:
+		return -1
+	case i > truncated:
+		return 1
+	case f == float64(truncated):
+		return 0
+	case f > 0:
+		return -1
+	default:
+		return 1
+	}
 }
 
 func cmpFloat(a, b float64) int {
