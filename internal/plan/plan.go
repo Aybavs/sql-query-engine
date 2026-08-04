@@ -255,9 +255,12 @@ func validate(e ast.Expr, s exec.Schema) error {
 	}
 }
 
+// exprName labels a result column. A bare column reference keeps its plain
+// name even when qualified in the query; any computed projection is labelled
+// with its source expression, so `SELECT COUNT(id)` reports "COUNT(id)".
 func exprName(e ast.Expr) string {
 	if c, ok := e.(*ast.ColumnRef); ok {
 		return c.Name
 	}
-	return "expr"
+	return ast.String(e)
 }

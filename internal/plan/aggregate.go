@@ -100,7 +100,10 @@ func buildAggregatePlan(
 
 	for i, spec := range collector.specs {
 		collector.slots[collector.calls[i]] = len(aggregateSchema)
-		aggregateSchema = append(aggregateSchema, exec.Column{Name: "expr", Type: spec.OutType})
+		aggregateSchema = append(aggregateSchema, exec.Column{
+			Name: ast.String(collector.calls[i]),
+			Type: spec.OutType,
+		})
 	}
 
 	projections := make([]ast.Expr, 0, len(st.Projections))
