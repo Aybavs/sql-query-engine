@@ -175,10 +175,11 @@ go test ./internal/difftest/ -run Differential -seed 31337 -queries 5000
 ```
 
 Every failure prints the exact query and seed. The engine has been checked
-across seeds 1, 2, 3, 99, 777, 12345, and 31337 at 5,000 queries each — 35,000
-comparisons with no disagreements. Roughly a quarter of the generated queries
-are joins, so the hash join is genuinely covered rather than incidentally
-touched.
+across ten seeds at 5,000 queries each — 50,000 comparisons with no
+disagreements, about 15,000 of them joins. That join share is asserted rather
+than assumed: the runner fails if joins fall below a threshold, because an
+earlier version of the generator only ever queried a single table, which left
+the hash join — the most intricate operator here — outside the oracle entirely.
 
 Comparison ignores row order, because SQL leaves it unspecified without
 `ORDER BY`, but duplicate counts still have to match. `ORDER BY` correctness is
