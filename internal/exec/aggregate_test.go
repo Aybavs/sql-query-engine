@@ -44,6 +44,33 @@ func TestAggregateGlobalAllFunctions(t *testing.T) {
 	}
 }
 
+func TestAggregateMinMaxPreserveLargeIntegerOrder(t *testing.T) {
+	const (
+		smaller int64 = 9007199254740992
+		larger  int64 = 9007199254740993
+	)
+	in := Schema{{Name: "min_n", Type: value.TInt}, {Name: "max_n", Type: value.TInt}}
+	rows := []value.Row{
+		{value.Int64(larger), value.Int64(smaller)},
+		{value.Int64(smaller), value.Int64(larger)},
+	}
+	specs := []AggregateSpec{
+		{Kind: AggMin, Expr: &ast.ColumnRef{Name: "min_n"}, OutType: value.TInt},
+		{Kind: AggMax, Expr: &ast.ColumnRef{Name: "max_n"}, OutType: value.TInt},
+	}
+
+	got := drainRows(NewAggregate(NewScan(in, rows), nil, specs, Schema{{Type: value.TInt}, {Type: value.TInt}}))
+	if len(got) != 1 {
+		t.Fatalf("row count = %d, want 1", len(got))
+	}
+	if got[0][0] != value.Int64(smaller) {
+		t.Errorf("MIN = %v, want %d", got[0][0], smaller)
+	}
+	if got[0][1] != value.Int64(larger) {
+		t.Errorf("MAX = %v, want %d", got[0][1], larger)
+	}
+}
+
 func TestAggregateGroupsInFirstSeenOrder(t *testing.T) {
 	in := Schema{{Name: "city", Type: value.TText}, {Name: "n", Type: value.TInt}}
 	rows := []value.Row{{value.Text("b"), value.Int64(2)}, {value.Text("a"), value.Int64(3)}, {value.Text("b"), value.Int64(4)}}
