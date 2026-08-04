@@ -95,3 +95,44 @@ func TestReplReportsAggregatePlannerError(t *testing.T) {
 		t.Fatalf("output = %q", out.String())
 	}
 }
+
+func TestRowCountIsSingularForOneRow(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "users.csv"), []byte("1,alice,30\n"), 0o644)
+	cat := catalog.New()
+	cat.Add(&catalog.Table{Name: "users", File: "users.csv", Columns: []catalog.Column{
+		{Name: "id", Type: value.TInt},
+		{Name: "name", Type: value.TText},
+		{Name: "age", Type: value.TInt},
+	}})
+
+	var out bytes.Buffer
+	Run(cat, dir, strings.NewReader("SELECT name FROM users\n"), &out)
+
+	if !strings.Contains(out.String(), "(1 row)") || strings.Contains(out.String(), "(1 rows)") {
+		t.Fatalf("output = %q, want a singular \"(1 row)\" footer", out.String())
+	}
+}
+
+func TestRowCountIsPluralOtherwise(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "users.csv"), []byte("1,alice,30\n2,bob,25\n"), 0o644)
+	cat := catalog.New()
+	cat.Add(&catalog.Table{Name: "users", File: "users.csv", Columns: []catalog.Column{
+		{Name: "id", Type: value.TInt},
+		{Name: "name", Type: value.TText},
+		{Name: "age", Type: value.TInt},
+	}})
+
+	var out bytes.Buffer
+	Run(cat, dir, strings.NewReader("SELECT name FROM users\n"), &out)
+	if !strings.Contains(out.String(), "(2 rows)") {
+		t.Fatalf("output = %q, want \"(2 rows)\"", out.String())
+	}
+
+	out.Reset()
+	Run(cat, dir, strings.NewReader("SELECT name FROM users WHERE age > 99\n"), &out)
+	if !strings.Contains(out.String(), "(0 rows)") {
+		t.Fatalf("output = %q, want \"(0 rows)\"", out.String())
+	}
+}

@@ -78,7 +78,14 @@ func printTable(out io.Writer, schema exec.Schema, op exec.Operator) {
 	for _, r := range rows {
 		fmt.Fprintln(out, joinPadded(r, widths))
 	}
-	fmt.Fprintf(out, "(%d rows)\n", len(rows))
+	fmt.Fprintf(out, "(%d %s)\n", len(rows), pluralRows(len(rows)))
+}
+
+func pluralRows(n int) string {
+	if n == 1 {
+		return "row"
+	}
+	return "rows"
 }
 
 func joinPadded(cells []string, widths []int) string {
